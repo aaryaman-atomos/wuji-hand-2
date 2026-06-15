@@ -11,18 +11,39 @@ const URDF_URL = 'urdf/right.urdf';
 
 // Each finger: the revolute joints that drive it and its tip link.
 // Joints are listed in slider display order (top -> bottom): for the fingers
-// DIP, PIP, Abd, MCP; for the thumb IP, MCP, Abd, CMC.
+// DIP, PIP, Abd, MCP; for the thumb IP, MCP, Abd, CMC. `label` is the joint name
+// shown on the slider.
 const FINGERS = [
-  { key: 'thumb',  label: 'Thumb',  color: 0xff6b6b, tip: 'r_thumb_tip',
-    joints: ['r_thumb_ip', 'r_thumb_mcp', 'r_thumb_cmc_abd', 'r_thumb_cmc_flex'] },
-  { key: 'index',  label: 'Index',  color: 0x4c9aff, tip: 'r_index_finger_tip',
-    joints: ['r_index_finger_dip', 'r_index_finger_pip', 'r_index_finger_mcp_abd', 'r_index_finger_mcp_flex'] },
-  { key: 'middle', label: 'Middle', color: 0x34d399, tip: 'r_middle_finger_tip',
-    joints: ['r_middle_finger_dip', 'r_middle_finger_pip', 'r_middle_finger_mcp_abd', 'r_middle_finger_mcp_flex'] },
-  { key: 'ring',   label: 'Ring',   color: 0xfbbf24, tip: 'r_ring_finger_tip',
-    joints: ['r_ring_finger_dip', 'r_ring_finger_pip', 'r_ring_finger_mcp_abd', 'r_ring_finger_mcp_flex'] },
-  { key: 'pinky',  label: 'Pinky',  color: 0xc084fc, tip: 'r_pinky_tip',
-    joints: ['r_pinky_dip', 'r_pinky_pip', 'r_pinky_mcp_abd', 'r_pinky_mcp_flex'] },
+  { key: 'thumb',  label: 'Thumb',  color: 0xff6b6b, tip: 'r_thumb_tip', joints: [
+    { name: 'r_thumb_ip',       label: 'IP' },
+    { name: 'r_thumb_mcp',      label: 'MCP' },
+    { name: 'r_thumb_cmc_abd',  label: 'Abd' },
+    { name: 'r_thumb_cmc_flex', label: 'CMC' },
+  ] },
+  { key: 'index',  label: 'Index',  color: 0x4c9aff, tip: 'r_index_finger_tip', joints: [
+    { name: 'r_index_finger_dip',      label: 'DIP' },
+    { name: 'r_index_finger_pip',      label: 'PIP' },
+    { name: 'r_index_finger_mcp_abd',  label: 'Abd' },
+    { name: 'r_index_finger_mcp_flex', label: 'MCP' },
+  ] },
+  { key: 'middle', label: 'Middle', color: 0x34d399, tip: 'r_middle_finger_tip', joints: [
+    { name: 'r_middle_finger_dip',      label: 'DIP' },
+    { name: 'r_middle_finger_pip',      label: 'PIP' },
+    { name: 'r_middle_finger_mcp_abd',  label: 'Abd' },
+    { name: 'r_middle_finger_mcp_flex', label: 'MCP' },
+  ] },
+  { key: 'ring',   label: 'Ring',   color: 0xfbbf24, tip: 'r_ring_finger_tip', joints: [
+    { name: 'r_ring_finger_dip',      label: 'DIP' },
+    { name: 'r_ring_finger_pip',      label: 'PIP' },
+    { name: 'r_ring_finger_mcp_abd',  label: 'Abd' },
+    { name: 'r_ring_finger_mcp_flex', label: 'MCP' },
+  ] },
+  { key: 'pinky',  label: 'Pinky',  color: 0xc084fc, tip: 'r_pinky_tip', joints: [
+    { name: 'r_pinky_dip',      label: 'DIP' },
+    { name: 'r_pinky_pip',      label: 'PIP' },
+    { name: 'r_pinky_mcp_abd',  label: 'Abd' },
+    { name: 'r_pinky_mcp_flex', label: 'MCP' },
+  ] },
 ];
 
 const colorHex = (c) => '#' + c.toString(16).padStart(6, '0');
@@ -185,7 +206,7 @@ function buildJointSliders() {
     title.innerHTML = `<span class="dot" style="background:${colorHex(finger.color)}"></span>${finger.label}`;
     group.appendChild(title);
 
-    for (const jointName of finger.joints) {
+    for (const { name: jointName, label } of finger.joints) {
       const joint = robot.joints[jointName];
       if (!joint) continue;
       // Slider values are in degrees; the URDF (and setJointValue) use radians.
@@ -197,11 +218,10 @@ function buildJointSliders() {
 
       const head = document.createElement('div');
       head.className = 'joint-head';
-      const shortName = jointName.replace(/^r_/, '').replace(/_/g, ' ');
       const valSpan = document.createElement('span');
       valSpan.className = 'joint-val';
       valSpan.textContent = '0°';
-      head.innerHTML = `<span>${shortName}</span>`;
+      head.innerHTML = `<span>${label}</span>`;
       head.appendChild(valSpan);
 
       const slider = document.createElement('input');
@@ -265,19 +285,24 @@ function buildSkeleton() {
   lines.renderOrder = 5;
   scene.add(lines);
 
-  const pointGeom = new THREE.BufferGeometry();
-  pointGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(nodeList.length * 3), 3));
-  const pointMat = new THREE.PointsMaterial({ color: 0xff9f1c, size: 7, sizeAttenuation: false, depthTest: false });
-  const points = new THREE.Points(pointGeom, pointMat);
-  points.renderOrder = 6;
-  scene.add(points);
+  // A solid sphere dot at every joint origin (rotation center).
+  const dotGeom = new THREE.SphereGeometry(1, 14, 14);
+  const dotMat = new THREE.MeshBasicMaterial({ color: 0xff9f1c, depthTest: false });
+  const dots = new THREE.InstancedMesh(dotGeom, dotMat, nodeList.length);
+  dots.frustumCulled = false;
+  dots.renderOrder = 6;
+  scene.add(dots);
 
-  skeleton = { bones, nodeList, lines, points };
+  skeleton = { bones, nodeList, lines, dots };
   updateSkeleton();
   setSkeletonVisibility(ui.toggleSkeleton.checked);
 }
 
+const DOT_RADIUS = 0.0035;             // metres
 const _v = new THREE.Vector3();
+const _m = new THREE.Matrix4();
+const _q = new THREE.Quaternion();
+const _scale = new THREE.Vector3(DOT_RADIUS, DOT_RADIUS, DOT_RADIUS);
 function updateSkeleton() {
   if (!skeleton) return;
   const lp = skeleton.lines.geometry.attributes.position;
@@ -287,11 +312,12 @@ function updateSkeleton() {
   });
   lp.needsUpdate = true;
 
-  const pp = skeleton.points.geometry.attributes.position;
   skeleton.nodeList.forEach((n, i) => {
-    n.getWorldPosition(_v); pp.setXYZ(i, _v.x, _v.y, _v.z);
+    n.getWorldPosition(_v);
+    _m.compose(_v, _q, _scale);
+    skeleton.dots.setMatrixAt(i, _m);
   });
-  pp.needsUpdate = true;
+  skeleton.dots.instanceMatrix.needsUpdate = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -306,7 +332,7 @@ function computeAllEnvelopes() {
   // Save the current pose so sampling does not disturb what the user set.
   const saved = {};
   for (const finger of FINGERS) {
-    for (const jn of finger.joints) saved[jn] = robot.joints[jn].angle;
+    for (const j of finger.joints) saved[j.name] = robot.joints[j.name].angle;
   }
 
   for (const finger of FINGERS) {
@@ -323,9 +349,9 @@ function computeFingerEnvelope(finger, saved) {
   const tipLink = robot.links[finger.tip];
   if (!tipLink) return;
 
-  const limits = finger.joints.map((jn) => {
-    const j = robot.joints[jn];
-    return { name: jn, lower: Number(j.limit.lower), upper: Number(j.limit.upper) };
+  const limits = finger.joints.map(({ name }) => {
+    const j = robot.joints[name];
+    return { name, lower: Number(j.limit.lower), upper: Number(j.limit.upper) };
   });
 
   const points = [];
@@ -417,7 +443,7 @@ function applyMeshOpacity(opacity) {
 function setSkeletonVisibility(visible) {
   if (!skeleton) return;
   skeleton.lines.visible = visible;
-  skeleton.points.visible = visible;
+  skeleton.dots.visible = visible;
 }
 
 ui.toggleMeshes.addEventListener('change', () => setMeshVisibility(ui.toggleMeshes.checked));
