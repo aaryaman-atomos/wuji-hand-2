@@ -298,7 +298,7 @@ function buildSkeleton() {
   setSkeletonVisibility(ui.toggleSkeleton.checked);
 }
 
-const DOT_RADIUS = 0.0017;             // metres
+const DOT_RADIUS = 0.0010;             // metres
 const _v = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
