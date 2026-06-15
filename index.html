@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wuji Hand 2 &mdash; Right Hand Range of Motion</title>
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+      "urdf-loader": "https://cdn.jsdelivr.net/npm/urdf-loader@0.13.0/src/URDFLoader.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="viewer"></div>
+
+  <div id="loading" class="overlay">
+    <div class="spinner"></div>
+    <div id="loading-text">Loading hand model&hellip;</div>
+  </div>
+
+  <header id="title">
+    <span class="title-main">Wuji Hand 2</span>
+    <span class="title-sub">Right Hand &middot; Range of Motion Explorer</span>
+  </header>
+
+  <aside id="panel">
+    <section class="card">
+      <h2>Display</h2>
+      <label class="row">
+        <input type="checkbox" id="toggle-meshes" checked />
+        <span>Show meshes</span>
+      </label>
+      <label class="row slider-row">
+        <span class="slider-label">Mesh opacity</span>
+        <input type="range" id="mesh-opacity" min="0.05" max="1" step="0.05" value="0.35" />
+      </label>
+      <label class="row">
+        <input type="checkbox" id="toggle-skeleton" checked />
+        <span>Show kinematic skeleton</span>
+      </label>
+      <label class="row">
+        <input type="checkbox" id="toggle-grid" checked />
+        <span>Show grid</span>
+      </label>
+    </section>
+
+    <section class="card">
+      <h2>Range of Motion Clouds</h2>
+      <p class="hint">Toggle the reachable fingertip volume for each finger.</p>
+      <div id="finger-toggles"></div>
+      <label class="row slider-row">
+        <span class="slider-label">Cloud density</span>
+        <input type="range" id="cloud-density" min="800" max="8000" step="200" value="3500" />
+      </label>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>Joints</h2>
+        <button id="reset-pose" class="btn-small">Reset</button>
+      </div>
+      <div id="joint-sliders"></div>
+    </section>
+
+    <footer class="panel-footer">
+      Drag to orbit &middot; scroll to zoom &middot; right-drag to pan
+    </footer>
+  </aside>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
