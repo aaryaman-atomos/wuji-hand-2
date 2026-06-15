@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
+import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
 import URDFLoader from 'urdf-loader';
 
 // ---------------------------------------------------------------------------
@@ -8,18 +9,20 @@ import URDFLoader from 'urdf-loader';
 // ---------------------------------------------------------------------------
 const URDF_URL = 'urdf/right.urdf';
 
-// Each finger: the revolute joints that drive it (in chain order) and its tip link.
+// Each finger: the revolute joints that drive it and its tip link.
+// Joints are listed in slider display order (top -> bottom): for the fingers
+// DIP, PIP, Abd, MCP; for the thumb IP, MCP, Abd, CMC.
 const FINGERS = [
   { key: 'thumb',  label: 'Thumb',  color: 0xff6b6b, tip: 'r_thumb_tip',
-    joints: ['r_thumb_cmc_flex', 'r_thumb_cmc_abd', 'r_thumb_mcp', 'r_thumb_ip'] },
+    joints: ['r_thumb_ip', 'r_thumb_mcp', 'r_thumb_cmc_abd', 'r_thumb_cmc_flex'] },
   { key: 'index',  label: 'Index',  color: 0x4c9aff, tip: 'r_index_finger_tip',
-    joints: ['r_index_finger_mcp_flex', 'r_index_finger_mcp_abd', 'r_index_finger_pip', 'r_index_finger_dip'] },
+    joints: ['r_index_finger_dip', 'r_index_finger_pip', 'r_index_finger_mcp_abd', 'r_index_finger_mcp_flex'] },
   { key: 'middle', label: 'Middle', color: 0x34d399, tip: 'r_middle_finger_tip',
-    joints: ['r_middle_finger_mcp_flex', 'r_middle_finger_mcp_abd', 'r_middle_finger_pip', 'r_middle_finger_dip'] },
+    joints: ['r_middle_finger_dip', 'r_middle_finger_pip', 'r_middle_finger_mcp_abd', 'r_middle_finger_mcp_flex'] },
   { key: 'ring',   label: 'Ring',   color: 0xfbbf24, tip: 'r_ring_finger_tip',
-    joints: ['r_ring_finger_mcp_flex', 'r_ring_finger_mcp_abd', 'r_ring_finger_pip', 'r_ring_finger_dip'] },
+    joints: ['r_ring_finger_dip', 'r_ring_finger_pip', 'r_ring_finger_mcp_abd', 'r_ring_finger_mcp_flex'] },
   { key: 'pinky',  label: 'Pinky',  color: 0xc084fc, tip: 'r_pinky_tip',
-    joints: ['r_pinky_mcp_flex', 'r_pinky_mcp_abd', 'r_pinky_pip', 'r_pinky_dip'] },
+    joints: ['r_pinky_dip', 'r_pinky_pip', 'r_pinky_mcp_abd', 'r_pinky_mcp_flex'] },
 ];
 
 const colorHex = (c) => '#' + c.toString(16).padStart(6, '0');
@@ -65,7 +68,7 @@ const root = new THREE.Group();
 root.rotation.x = -Math.PI / 2;
 scene.add(root);
 
-// Holds the range-of-motion point clouds (world coordinates).
+// Holds the range-of-motion envelope surfaces (world coordinates).
 const cloudGroup = new THREE.Group();
 scene.add(cloudGroup);
 
@@ -74,7 +77,7 @@ scene.add(cloudGroup);
 // ---------------------------------------------------------------------------
 let robot = null;
 const meshes = [];            // every visual THREE.Mesh
-const fingerClouds = {};      // key -> THREE.Points
+const fingerEnvelopes = {};   // key -> THREE.Mesh (convex-hull range-of-motion surface)
 let skeleton = null;          // { points: Points, lines: LineSegments, bones: [[linkA, linkB], ...] }
 
 const ui = {
@@ -83,7 +86,6 @@ const ui = {
   toggleSkeleton: document.getElementById('toggle-skeleton'),
   toggleGrid: document.getElementById('toggle-grid'),
   fingerToggles: document.getElementById('finger-toggles'),
-  cloudDensity: document.getElementById('cloud-density'),
   jointSliders: document.getElementById('joint-sliders'),
   resetPose: document.getElementById('reset-pose'),
   loading: document.getElementById('loading'),
@@ -143,7 +145,7 @@ function onAssetsReady() {
   positionGrid();
   applyMeshOpacity(parseFloat(ui.meshOpacity.value));
   setMeshVisibility(ui.toggleMeshes.checked);
-  computeAllClouds();
+  computeAllEnvelopes();
   ui.loading.classList.add('hidden');
 }
 
@@ -186,8 +188,9 @@ function buildJointSliders() {
     for (const jointName of finger.joints) {
       const joint = robot.joints[jointName];
       if (!joint) continue;
-      const lower = Number(joint.limit.lower);
-      const upper = Number(joint.limit.upper);
+      // Slider values are in degrees; the URDF (and setJointValue) use radians.
+      const lowerDeg = THREE.MathUtils.radToDeg(Number(joint.limit.lower));
+      const upperDeg = THREE.MathUtils.radToDeg(Number(joint.limit.upper));
 
       const wrap = document.createElement('div');
       wrap.className = 'joint';
@@ -197,21 +200,21 @@ function buildJointSliders() {
       const shortName = jointName.replace(/^r_/, '').replace(/_/g, ' ');
       const valSpan = document.createElement('span');
       valSpan.className = 'joint-val';
-      valSpan.textContent = '0.00';
+      valSpan.textContent = '0°';
       head.innerHTML = `<span>${shortName}</span>`;
       head.appendChild(valSpan);
 
       const slider = document.createElement('input');
       slider.type = 'range';
-      slider.min = lower;
-      slider.max = upper;
-      slider.step = (upper - lower) / 200;
+      slider.min = lowerDeg;
+      slider.max = upperDeg;
+      slider.step = 1;
       slider.value = 0;
 
       slider.addEventListener('input', () => {
-        const v = parseFloat(slider.value);
-        robot.setJointValue(jointName, v);
-        valSpan.textContent = v.toFixed(2);
+        const deg = parseFloat(slider.value);
+        robot.setJointValue(jointName, THREE.MathUtils.degToRad(deg));
+        valSpan.textContent = `${Math.round(deg)}°`;
         scene.updateMatrixWorld(true);
         updateSkeleton();
       });
@@ -231,7 +234,7 @@ ui.resetPose.addEventListener('click', () => {
   ui.jointSliders.querySelectorAll('input[type="range"]').forEach((slider) => {
     slider.value = 0;
     robot.setJointValue(slider._jointName, 0);
-    slider._valSpan.textContent = '0.00';
+    slider._valSpan.textContent = '0°';
   });
   scene.updateMatrixWorld(true);
   updateSkeleton();
@@ -292,18 +295,22 @@ function updateSkeleton() {
 }
 
 // ---------------------------------------------------------------------------
-// Range-of-motion clouds (Monte-Carlo sampling of each finger's joint space)
+// Range-of-motion envelopes
+// For each finger we Monte-Carlo sample its joint space, collect the resulting
+// fingertip positions, and wrap them in a convex hull -> a smooth translucent
+// surface showing the reachable volume.
 // ---------------------------------------------------------------------------
-function computeAllClouds() {
+const ENVELOPE_SAMPLES = 4000;
+
+function computeAllEnvelopes() {
   // Save the current pose so sampling does not disturb what the user set.
   const saved = {};
   for (const finger of FINGERS) {
     for (const jn of finger.joints) saved[jn] = robot.joints[jn].angle;
   }
 
-  const samples = parseInt(ui.cloudDensity.value, 10);
   for (const finger of FINGERS) {
-    computeFingerCloud(finger, samples, saved);
+    computeFingerEnvelope(finger, saved);
   }
 
   // Restore.
@@ -312,7 +319,7 @@ function computeAllClouds() {
   updateSkeleton();
 }
 
-function computeFingerCloud(finger, samples, saved) {
+function computeFingerEnvelope(finger, saved) {
   const tipLink = robot.links[finger.tip];
   if (!tipLink) return;
 
@@ -321,48 +328,54 @@ function computeFingerCloud(finger, samples, saved) {
     return { name: jn, lower: Number(j.limit.lower), upper: Number(j.limit.upper) };
   });
 
-  const positions = new Float32Array(samples * 3);
+  const points = [];
   const tmp = new THREE.Vector3();
-  for (let s = 0; s < samples; s++) {
+  for (let s = 0; s < ENVELOPE_SAMPLES; s++) {
     for (const lim of limits) {
       robot.setJointValue(lim.name, lim.lower + Math.random() * (lim.upper - lim.lower));
     }
     robot.updateMatrixWorld(true);
     tipLink.getWorldPosition(tmp);
-    positions[s * 3] = tmp.x;
-    positions[s * 3 + 1] = tmp.y;
-    positions[s * 3 + 2] = tmp.z;
+    points.push(tmp.clone());
   }
   // Reset this finger to the saved pose before moving on.
   for (const lim of limits) robot.setJointValue(lim.name, saved[lim.name]);
 
-  // Replace any existing cloud for this finger.
-  if (fingerClouds[finger.key]) {
-    cloudGroup.remove(fingerClouds[finger.key]);
-    fingerClouds[finger.key].geometry.dispose();
-    fingerClouds[finger.key].material.dispose();
+  // Replace any existing envelope for this finger.
+  if (fingerEnvelopes[finger.key]) {
+    cloudGroup.remove(fingerEnvelopes[finger.key]);
+    fingerEnvelopes[finger.key].geometry.dispose();
+    fingerEnvelopes[finger.key].material.dispose();
   }
 
-  const geom = new THREE.BufferGeometry();
-  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  const mat = new THREE.PointsMaterial({
+  let geom;
+  try {
+    geom = new ConvexGeometry(points);
+  } catch (e) {
+    console.warn(`Could not build envelope for ${finger.key}:`, e);
+    return;
+  }
+  geom.computeVertexNormals();
+  const mat = new THREE.MeshStandardMaterial({
     color: finger.color,
-    size: 0.0022,
-    sizeAttenuation: true,
+    metalness: 0.0,
+    roughness: 0.9,
     transparent: true,
-    opacity: 0.55,
+    opacity: 0.22,
     depthWrite: false,
+    side: THREE.DoubleSide,
   });
-  const cloud = new THREE.Points(geom, mat);
-  cloud.visible = isFingerActive(finger.key);
-  fingerClouds[finger.key] = cloud;
-  cloudGroup.add(cloud);
+  const envelope = new THREE.Mesh(geom, mat);
+  envelope.renderOrder = 2;
+  envelope.visible = isFingerActive(finger.key);
+  fingerEnvelopes[finger.key] = envelope;
+  cloudGroup.add(envelope);
 }
 
 // ---------------------------------------------------------------------------
 // Finger toggle buttons
 // ---------------------------------------------------------------------------
-const activeFingers = new Set(FINGERS.map((f) => f.key));   // all on by default
+const activeFingers = new Set();   // envelopes off by default
 
 function isFingerActive(key) { return activeFingers.has(key); }
 
@@ -370,7 +383,7 @@ function buildFingerToggles() {
   ui.fingerToggles.innerHTML = '';
   for (const finger of FINGERS) {
     const btn = document.createElement('button');
-    btn.className = 'finger-btn active';
+    btn.className = 'finger-btn';
     btn.style.color = colorHex(finger.color);
     btn.innerHTML = `<span class="dot" style="background:${colorHex(finger.color)}"></span>${finger.label}`;
     btn.addEventListener('click', () => {
@@ -381,18 +394,11 @@ function buildFingerToggles() {
         activeFingers.add(finger.key);
         btn.classList.add('active');
       }
-      if (fingerClouds[finger.key]) fingerClouds[finger.key].visible = activeFingers.has(finger.key);
+      if (fingerEnvelopes[finger.key]) fingerEnvelopes[finger.key].visible = activeFingers.has(finger.key);
     });
     ui.fingerToggles.appendChild(btn);
   }
 }
-
-// Recompute clouds when density changes (debounced).
-let densityTimer = null;
-ui.cloudDensity.addEventListener('input', () => {
-  clearTimeout(densityTimer);
-  densityTimer = setTimeout(() => { if (robot) computeAllClouds(); }, 250);
-});
 
 // ---------------------------------------------------------------------------
 // Display toggles
